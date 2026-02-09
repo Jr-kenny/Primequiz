@@ -1,5 +1,6 @@
 import { createClient, createAccount } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
+import { parseDynamicJSON } from "./utils";
 
 export const CONTRACT_ADDRESS = "0x16aBdCFb7834ab0660ecD9Eb2dAe320C54E79a31";
 export const CUSTOM_CONTRACT_ADDRESS = "0x66E2647e951970b82383d5B4fAE8Ad8e3449EF75";
@@ -28,6 +29,7 @@ export interface QuizResult {
   percentage: string;
   details: string[];
 }
+
 
 // Initialize GenLayer client (Kenny Pattern - Singleton)
 export const initializeGenLayer = async () => {
@@ -97,38 +99,21 @@ export const generateQuiz = async (
         const resultPayload = leaderReceipt[0]?.result?.payload;
 
         if (resultPayload?.readable) {
-          let rawData = resultPayload.readable;
-          console.log("📝 Found data in consensus_data.leader_receipt[0].result.payload.readable");
-
-          // The readable field is a double-stringified JSON, so we need to parse twice
-          // First parse removes the outer string quotes
-          if (typeof rawData === 'string') {
-            // Try parsing - might be double-encoded
-            let parsed = JSON.parse(rawData);
-
-            // If still a string, parse again
-            if (typeof parsed === 'string') {
-              parsed = JSON.parse(parsed);
-            }
-
-            console.log("✅ Parsed quiz data:", parsed);
-            return parsed as QuizData;
-          }
-
-          // Already an object
-          if (typeof rawData === 'object' && rawData.questions) {
-            return rawData as QuizData;
+          const parsed = parseDynamicJSON<QuizData>(resultPayload.readable);
+          if (parsed) {
+            console.log("✅ Parsed quiz data from consensus payload:", parsed);
+            return parsed;
           }
         }
       }
 
       // Fallback: check receipt.result directly
       if (receipt?.result) {
-        const quizData = typeof receipt.result === 'string'
-          ? JSON.parse(receipt.result)
-          : receipt.result;
-        console.log("📝 Found data in receipt.result");
-        return quizData as QuizData;
+        const parsed = parseDynamicJSON<QuizData>(receipt.result);
+        if (parsed) {
+          console.log("✅ Parsed quiz data from receipt.result:", parsed);
+          return parsed;
+        }
       }
 
       console.error("❌ No quiz data found in receipt");
@@ -199,35 +184,21 @@ export const submitAnswers = async (
         const resultPayload = leaderReceipt[0]?.result?.payload;
 
         if (resultPayload?.readable) {
-          let rawData = resultPayload.readable;
-          console.log("📝 Found result in consensus_data.leader_receipt[0].result.payload.readable");
-
-          // The readable field is double-stringified JSON
-          if (typeof rawData === 'string') {
-            let parsed = JSON.parse(rawData);
-
-            // If still a string, parse again
-            if (typeof parsed === 'string') {
-              parsed = JSON.parse(parsed);
-            }
-
-            console.log("✅ Parsed quiz result:", parsed);
-            return parsed as QuizResult;
-          }
-
-          if (typeof rawData === 'object' && rawData.total_score) {
-            return rawData as QuizResult;
+          const parsed = parseDynamicJSON<QuizResult>(resultPayload.readable);
+          if (parsed) {
+            console.log("✅ Parsed quiz result from consensus payload:", parsed);
+            return parsed;
           }
         }
       }
 
       // Fallback: check receipt.result directly
       if (receipt?.result) {
-        const resultData = typeof receipt.result === 'string'
-          ? JSON.parse(receipt.result)
-          : receipt.result;
-        console.log("📝 Found result in receipt.result");
-        return resultData as QuizResult;
+        const parsed = parseDynamicJSON<QuizResult>(receipt.result);
+        if (parsed) {
+          console.log("✅ Parsed quiz result from receipt.result:", parsed);
+          return parsed;
+        }
       }
 
       console.error("❌ No result found in receipt");
@@ -325,11 +296,9 @@ export const generateCustomQuiz = async (
 
     console.log("📝 Quiz JSON:", quizJson);
 
-    let quizData: CustomQuizData;
-    if (typeof quizJson === 'string') {
-      quizData = JSON.parse(quizJson);
-    } else {
-      quizData = quizJson as CustomQuizData;
+    const quizData = parseDynamicJSON<CustomQuizData>(quizJson);
+    if (!quizData) {
+      throw new Error("Failed to parse custom quiz data");
     }
 
     return { quiz: quizData, quizId };
@@ -374,11 +343,9 @@ export const gradeCustomQuiz = async (
     console.log("✅ Grade result:", resultJson);
     onProgress?.("✅ Results ready!");
 
-    let result: CustomQuizResult;
-    if (typeof resultJson === 'string') {
-      result = JSON.parse(resultJson);
-    } else {
-      result = resultJson as CustomQuizResult;
+    const result = parseDynamicJSON<CustomQuizResult>(resultJson);
+    if (!result) {
+      throw new Error("Failed to parse custom quiz results");
     }
 
     return result;

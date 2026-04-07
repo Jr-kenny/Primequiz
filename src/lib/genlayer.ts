@@ -2,8 +2,8 @@ import { createClient, createAccount } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
 import { parseDynamicJSON } from "./utils";
 
-export const CONTRACT_ADDRESS = "0x16aBdCFb7834ab0660ecD9Eb2dAe320C54E79a31";
-export const CUSTOM_CONTRACT_ADDRESS = "0x66E2647e951970b82383d5B4fAE8Ad8e3449EF75";
+export const CONTRACT_ADDRESS = "0xF3c011Bae30e77A195A9bd7E7Eee348400Cc4cFF";
+export const CUSTOM_CONTRACT_ADDRESS = "0xe8E16090C7b29dbC16E149913067aFaD3B3D113B";
 
 let client: any = null;
 

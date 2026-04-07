@@ -1,96 +1,107 @@
-# { "Depends": "py-genlayer:test" }
+# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
 from genlayer import *
 import json
 
+
 class QuizGenerator(gl.Contract):
-    # Persistent State Variables [1]
     quiz_count: u256
     quizzes: TreeMap[u256, str]
 
     def __init__(self):
-        # Initialize state variables with proper GenVM types [1-3]
         self.quiz_count = u256(0)
-        self.quizzes = TreeMap[u256, str]()
 
     @gl.public.write
     def generate_quiz(self, material: str, difficulty: str) -> u256:
-        """
-        Analyzes submitted material and generates a quiz JSON based on difficulty.
-        Returns the unique ID of the generated quiz. [1]
-        """
-        
-        # Define the non-deterministic logic (AI call) [1]
-        def nd_logic():
-            # Strict prompt to enforce JSON structure and forbid markdown [4]
+        def leader_fn():
             prompt = (
-                f"Analyze the following material and generate a quiz. "
-                f"Difficulty Level: {difficulty}.\n\n"
-                f"Material: {material}\n\n"
-                f"Instructions:\n"
-                f"1. Return ONLY a valid JSON object.\n"
-                f"2. Do NOT use Markdown formatting (no ```json blocks).\n"
-                f"3. Do NOT include introductory or concluding text.\n"
-                f"4. JSON Structure: {{ 'summary': 'short summary of material', "
-                f"'questions': [ {{ 'question': 'text', 'options': ['A', 'B', 'C', 'D'], 'answer': 'correct_option_text' }} ] }}"
+                "Analyze the following material and generate a quiz.\n"
+                f"Difficulty Level: {difficulty}\n\n"
+                f"Material:\n{material}\n\n"
+                "Return only a valid JSON object with this structure:\n"
+                '{ "summary": "...", "questions": ['
+                '{ "question": "...", "options": { "A": "...", "B": "...", "C": "...", "D": "..." }, "answer": "A" }'
+                "] }\n"
+                "Do not use markdown or extra text."
             )
-            return gl.nondet.exec_prompt(prompt) # [5]
 
-        # Execute using Non-Comparative Equivalence Principle [5]
-        # This allows validators to verify the output is valid JSON and relevant.
-        quiz_json_result = gl.eq_principle.prompt_non_comparative(
-            nd_logic,
-            task=f"Generate a {difficulty} difficulty quiz from the provided text.",
-            criteria="Output must be valid JSON, strictly follow the requested structure, and be relevant to the material."
-        )
+            result = gl.nondet.exec_prompt(prompt, response_format="json")
+            if not isinstance(result, dict):
+                raise gl.UserError("LLM did not return a JSON object")
+            return result
 
-        # Storage Logic: save the result and increment the counter [6]
+        def validator_fn(leader_result) -> bool:
+            if not isinstance(leader_result, gl.vm.Return):
+                return False
+
+            data = leader_result.calldata
+            if not isinstance(data, dict):
+                return False
+
+            summary = data.get("summary")
+            questions = data.get("questions")
+
+            if not isinstance(summary, str) or len(summary.strip()) == 0:
+                return False
+
+            if not isinstance(questions, list) or len(questions) == 0:
+                return False
+
+            for question in questions:
+                if not isinstance(question, dict):
+                    return False
+
+                if not isinstance(question.get("question"), str):
+                    return False
+
+                options = question.get("options")
+                if not isinstance(options, dict):
+                    return False
+
+                for key in ("A", "B", "C", "D"):
+                    if not isinstance(options.get(key), str):
+                        return False
+
+                if question.get("answer") not in ("A", "B", "C", "D"):
+                    return False
+
+            return True
+
+        quiz_data = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
+        quiz_json_result = json.dumps(quiz_data, sort_keys=True)
+
         current_id = self.quiz_count
         self.quizzes[current_id] = quiz_json_result
         self.quiz_count += u256(1)
-        
+
         return current_id
 
     @gl.public.view
     def get_quiz(self, quiz_id: u256) -> str:
-        """
-        Retrieves the JSON string of a generated quiz by ID. [6]
-        """
         if quiz_id >= self.quiz_count:
-            raise gl.Rollback("Quiz ID does not exist.") # [6, 7]
+            raise gl.Rollback("Quiz ID does not exist.")
         return self.quizzes[quiz_id]
 
     @gl.public.view
     def grade_quiz(self, quiz_id: u256, user_answers: DynArray[str]) -> str:
-        """
-        Retrieves a stored quiz and compares user_answers against the correct answers.
-        Returns a JSON string with the final score.
-        """
-        # 1. Retrieve the quiz JSON string [6]
         quiz_json = self.get_quiz(quiz_id)
-        
-        # 2. Parse JSON (Intelligent Contracts can use standard json module) [8-10]
         quiz_data = json.loads(quiz_json)
-        questions = quiz_data.get('questions', [])
-        
-        # 3. Validate answer count matches question count [7]
+        questions = quiz_data.get("questions", [])
+
         if len(user_answers) != len(questions):
             raise gl.Rollback("Provided answer count does not match the quiz length.")
-        
-        # 4. Grading logic (Deterministic)
+
         score = 0
         total_questions = len(questions)
-        
+
         for i in range(total_questions):
-            # Access the 'answer' field defined in the generate_quiz prompt [4]
-            correct_answer = questions[i]['answer']
+            correct_answer = questions[i]["answer"]
             if user_answers[i] == correct_answer:
                 score += 1
-        
-        # 5. Return results as a JSON string for easy frontend parsing [11, 12]
+
         return json.dumps({
             "quiz_id": int(quiz_id),
             "score": score,
             "total": total_questions,
             "percentage": (score / total_questions) * 100 if total_questions > 0 else 0
-        })
+        }, sort_keys=True)
